@@ -22,7 +22,12 @@ RCT_EXPORT_MODULE();
 
 - (UIView *)view
 {
-    return [[RCTCamera alloc] initWithManager:self bridge:self.bridge];
+  self.session = [AVCaptureSession new];
+
+  self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:self.session];
+  self.previewLayer.needsDisplayOnBoundsChange = YES;
+
+  return [[RCTCamera alloc] initWithManager:self bridge:self.bridge];
 }
 
 RCT_EXPORT_VIEW_PROPERTY(aspect, NSInteger);
@@ -31,6 +36,7 @@ RCT_EXPORT_VIEW_PROPERTY(orientation, NSInteger);
 RCT_EXPORT_VIEW_PROPERTY(flashMode, NSInteger);
 RCT_EXPORT_VIEW_PROPERTY(torchMode, NSInteger);
 RCT_EXPORT_VIEW_PROPERTY(keepAwake, BOOL);
+RCT_EXPORT_VIEW_PROPERTY(mirrorImage, BOOL);
 
 - (NSDictionary *)constantsToExport
 {
@@ -68,6 +74,15 @@ RCT_EXPORT_VIEW_PROPERTY(keepAwake, BOOL);
            @"CaptureMode": @{
                @"still": @(RCTCameraCaptureModeStill),
                @"video": @(RCTCameraCaptureModeVideo)
+               },
+           @"CaptureQuality": @{
+               @"low": AVCaptureSessionPresetLow,
+               @"AVCaptureSessionPresetLow": AVCaptureSessionPresetLow,
+               @"medium": AVCaptureSessionPresetMedium,
+               @"AVCaptureSessionPresetMedium": AVCaptureSessionPresetMedium,
+               @"high": AVCaptureSessionPresetHigh,
+               @"AVCaptureSessionPresetHigh": AVCaptureSessionPresetHigh,
+               @"AVCaptureSessionPresetPhoto": AVCaptureSessionPresetPhoto
                },
            @"CaptureTarget": @{
                @"memory": @(RCTCameraCaptureTargetMemory),
@@ -132,18 +147,10 @@ RCT_EXPORT_VIEW_PROPERTY(onZoomChanged, BOOL)
 }
 
 - (id)init {
-
   if ((self = [super init])) {
-
-    self.session = [AVCaptureSession new];
-    self.session.sessionPreset = AVCaptureSessionPresetHigh;
-
-    self.previewLayer = [AVCaptureVideoPreviewLayer layerWithSession:self.session];
-    self.previewLayer.needsDisplayOnBoundsChange = YES;
+    self.mirrorImage = false;
 
     self.sessionQueue = dispatch_queue_create("cameraManagerQueue", DISPATCH_QUEUE_SERIAL);
-
-
   }
   return self;
 }
@@ -164,6 +171,26 @@ RCT_EXPORT_METHOD(checkDeviceAuthorizationStatus:(RCTPromiseResolveBlock)resolve
     }
   }];
 }
+
+
+RCT_EXPORT_METHOD(checkVideoAuthorizationStatus:(RCTPromiseResolveBlock)resolve
+                  reject:(__unused RCTPromiseRejectBlock)reject) {
+    __block NSString *mediaType = AVMediaTypeVideo;
+    
+    [AVCaptureDevice requestAccessForMediaType:mediaType completionHandler:^(BOOL granted) {
+        resolve(@(granted));
+    }];
+}
+
+RCT_EXPORT_METHOD(checkAudioAuthorizationStatus:(RCTPromiseResolveBlock)resolve
+                  reject:(__unused RCTPromiseRejectBlock)reject) {
+    __block NSString *mediaType = AVMediaTypeAudio;
+
+    [AVCaptureDevice requestAccessForMediaType:mediaType completionHandler:^(BOOL granted) {
+        resolve(@(granted));
+    }];
+}
+
 
 RCT_EXPORT_METHOD(changeCamera:(NSInteger)camera) {
   dispatch_async(self.sessionQueue, ^{
@@ -226,16 +253,14 @@ RCT_EXPORT_METHOD(changeFlashMode:(NSInteger)flashMode) {
 }
 
 RCT_EXPORT_METHOD(changeOrientation:(NSInteger)orientation) {
+  [self setOrientation:orientation];
   if (self.previewLayer.connection.isVideoOrientationSupported) {
     self.previewLayer.connection.videoOrientation = orientation;
   }
-  else {
-    // Setting videoOrientation isn't yet supported, so we have to wait until
-    // startSession has finished to set it. Put this in the queue behind.
-    dispatch_async(self.sessionQueue, ^{
-      self.previewLayer.connection.videoOrientation = orientation;
-    });
-  }
+}
+
+RCT_EXPORT_METHOD(changeMirrorImage:(BOOL)mirrorImage) {
+  self.mirrorImage = mirrorImage;
 }
 
 RCT_EXPORT_METHOD(changeTorchMode:(NSInteger)torchMode) {
@@ -256,6 +281,8 @@ RCT_EXPORT_METHOD(capture:(NSDictionary *)options
                   reject:(RCTPromiseRejectBlock)reject) {
   NSInteger captureMode = [[options valueForKey:@"mode"] intValue];
   NSInteger captureTarget = [[options valueForKey:@"target"] intValue];
+
+  [self setCaptureQuality:[options valueForKey:@"quality"]];
 
   if (captureMode == RCTCameraCaptureModeStill) {
     [self captureStill:captureTarget options:options resolve:resolve reject:reject];
@@ -349,6 +376,7 @@ RCT_EXPORT_METHOD(hasFlash:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRej
       });
     }]];
 
+    [self.previewLayer.connection setVideoOrientation:self.orientation];
     [self.session startRunning];
   });
 }
@@ -526,18 +554,18 @@ RCT_EXPORT_METHOD(hasFlash:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRej
   else if (target == RCTCameraCaptureTargetDisk) {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *documentsDirectory = [paths firstObject];
-      
+
     NSFileManager *fileManager = [NSFileManager defaultManager];
     NSString *fullPath = [[documentsDirectory stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]] stringByAppendingPathExtension:@"jpg"];
-    
+
     [fileManager createFileAtPath:fullPath contents:imageData attributes:nil];
     responseString = fullPath;
   }
-    
+
   else if (target == RCTCameraCaptureTargetTemp) {
     NSString *fileName = [[NSProcessInfo processInfo] globallyUniqueString];
     NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", NSTemporaryDirectory(), fileName];
-      
+
     [imageData writeToFile:fullPath atomically:YES];
     responseString = fullPath;
   }
@@ -568,6 +596,12 @@ RCT_EXPORT_METHOD(hasFlash:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRej
 
   CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   CGContextRef bmContext = CGBitmapContextCreate(NULL, rotatedRect.size.width, rotatedRect.size.height, 8, 0, colorSpace, (CGBitmapInfo) kCGImageAlphaPremultipliedFirst);
+
+  if (self.mirrorImage) {
+    CGAffineTransform transform = CGAffineTransformMakeTranslation(rotatedRect.size.width, 0.0);
+    transform = CGAffineTransformScale(transform, -1.0, 1.0);
+    CGContextConcatCTM(bmContext, transform);
+  }
 
   CGContextSetAllowsAntialiasing(bmContext, TRUE);
   CGContextSetInterpolationQuality(bmContext, kCGInterpolationNone);
@@ -667,8 +701,8 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
     NSFileManager * fileManager = [NSFileManager defaultManager];
     NSError * error = nil;
 
-    //copying destination
-    if (!([fileManager copyItemAtPath:[outputFileURL path] toPath:fullPath error:&error])) {
+    //moving to destination
+    if (!([fileManager moveItemAtPath:[outputFileURL path] toPath:fullPath error:&error])) {
       self.videoReject(RCTErrorUnspecified, nil, RCTErrorWithMessage(error.description));
       return;
     }
@@ -677,12 +711,12 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
   else if (self.videoTarget == RCTCameraCaptureTargetTemp) {
     NSString *fileName = [[NSProcessInfo processInfo] globallyUniqueString];
     NSString *fullPath = [NSString stringWithFormat:@"%@%@.mov", NSTemporaryDirectory(), fileName];
-    
+
     NSFileManager * fileManager = [NSFileManager defaultManager];
     NSError * error = nil;
-      
-    //copying destination
-    if (!([fileManager copyItemAtPath:[outputFileURL path] toPath:fullPath error:&error])) {
+
+    //moving to destination
+    if (!([fileManager moveItemAtPath:[outputFileURL path] toPath:fullPath error:&error])) {
         self.videoReject(RCTErrorUnspecified, nil, RCTErrorWithMessage(error.description));
         return;
     }
@@ -698,18 +732,20 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
   for (AVMetadataMachineReadableCodeObject *metadata in metadataObjects) {
     for (id barcodeType in [self getBarCodeTypes]) {
       if (metadata.type == barcodeType) {
-        
+        // Transform the meta-data coordinates to screen coords
+        AVMetadataMachineReadableCodeObject *transformed = (AVMetadataMachineReadableCodeObject *)[_previewLayer transformedMetadataObjectForMetadataObject:metadata];
+
         NSDictionary *event = @{
           @"type": metadata.type,
           @"data": metadata.stringValue,
           @"bounds": @{
             @"origin": @{
-              @"x": [NSString stringWithFormat:@"%f", metadata.bounds.origin.x],
-              @"y": [NSString stringWithFormat:@"%f", metadata.bounds.origin.y]
+              @"x": [NSString stringWithFormat:@"%f", transformed.bounds.origin.x],
+              @"y": [NSString stringWithFormat:@"%f", transformed.bounds.origin.y]
             },
             @"size": @{
-              @"height": [NSString stringWithFormat:@"%f", metadata.bounds.size.height],
-              @"width": [NSString stringWithFormat:@"%f", metadata.bounds.size.width],
+              @"height": [NSString stringWithFormat:@"%f", transformed.bounds.size.height],
+              @"width": [NSString stringWithFormat:@"%f", transformed.bounds.size.width],
             }
           }
         };
@@ -832,13 +868,24 @@ didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
           @"zoomFactor": [NSNumber numberWithDouble:zoomFactor],
           @"velocity": [NSNumber numberWithDouble:velocity]
         };
-      
+
         [self.bridge.eventDispatcher sendInputEventWithName:@"zoomChanged" body:event];
 
         device.videoZoomFactor = zoomFactor;
         [device unlockForConfiguration];
     } else {
         NSLog(@"error: %@", error);
+    }
+}
+
+- (void)setCaptureQuality:(NSString *)quality
+{
+    if (quality) {
+        [self.session beginConfiguration];
+        if ([self.session canSetSessionPreset:quality]) {
+            self.session.sessionPreset = quality;
+        }
+        [self.session commitConfiguration];
     }
 }
 

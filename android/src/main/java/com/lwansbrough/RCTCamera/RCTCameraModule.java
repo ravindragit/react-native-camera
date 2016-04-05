@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 
 public class RCTCameraModule extends ReactContextBaseJavaModule {
     private static final String TAG = "RCTCameraModule";
@@ -69,6 +70,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule {
             {
                 put("Aspect", getAspectConstants());
                 put("Type", getTypeConstants());
+                put("CaptureQuality", getCaptureQualityConstants());
                 put("CaptureMode", getCaptureModeConstants());
                 put("CaptureTarget", getCaptureTargetConstants());
                 put("Orientation", getOrientationConstants());
@@ -91,6 +93,16 @@ public class RCTCameraModule extends ReactContextBaseJavaModule {
                     {
                         put("front", RCT_CAMERA_TYPE_FRONT);
                         put("back", RCT_CAMERA_TYPE_BACK);
+                    }
+                });
+            }
+
+            private Map<String, Object> getCaptureQualityConstants() {
+                return Collections.unmodifiableMap(new HashMap<String, Object>() {
+                    {
+                        put("low", "low");
+                        put("medium", "medium");
+                        put("high", "high");
                     }
                 });
             }
@@ -156,6 +168,7 @@ public class RCTCameraModule extends ReactContextBaseJavaModule {
             promise.reject("No camera found.");
             return;
         }
+        RCTCamera.getInstance().setCaptureQuality(options.getInt("type"), options.getString("quality"));
         camera.takePicture(null, null, new Camera.PictureCallback() {
             @Override
             public void onPictureTaken(byte[] data, Camera camera) {
@@ -220,6 +233,17 @@ public class RCTCameraModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void stopCapture(final ReadableMap options, final Promise promise) {
         // TODO: implement video capture
+    }
+
+    @ReactMethod
+    public void hasFlash(ReadableMap options, final Promise promise) {
+        Camera camera = RCTCamera.getInstance().acquireCameraInstance(options.getInt("type"));
+        if (null == camera) {
+            promise.reject("No camera found.");
+            return;
+        }
+        List<String> flashModes = camera.getParameters().getSupportedFlashModes();
+        promise.resolve(null != flashModes && !flashModes.isEmpty());
     }
 
     private File getOutputMediaFile(int type) {

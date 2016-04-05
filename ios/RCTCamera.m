@@ -10,6 +10,14 @@
 #import <AVFoundation/AVFoundation.h>
 #import "CameraFocusSquare.h"
 
+@interface RCTCamera ()
+
+@property (nonatomic, weak) RCTCameraManager *manager;
+@property (nonatomic, weak) RCTBridge *bridge;
+@property (nonatomic, strong) RCTCameraFocusSquare *camFocus;
+
+@end
+
 @implementation RCTCamera
 {
   BOOL _multipleTouches;
@@ -58,6 +66,11 @@
     [[NSNotificationCenter defaultCenter]removeObserver:self name:UIDeviceOrientationDidChangeNotification object:nil];
     [self.manager changeOrientation:orientation];
   }
+}
+
+- (void)setMirrorImage:(BOOL)mirrorImage
+{
+  [self.manager changeMirrorImage:mirrorImage];
 }
 
 - (void)setFlashMode:(NSInteger)flashMode

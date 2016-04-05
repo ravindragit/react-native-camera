@@ -139,6 +139,11 @@ Values: `Camera.constants.CaptureTarget.cameraRoll` (default), `Camera.constants
 
 This property allows you to specify the target output of the captured image data. By default the image binary is sent back as a base 64 encoded string. The disk output has been shown to improve capture response time, so that is the recommended value.
 
+#### `iOS` `captureQuality`
+
+Values: `Camera.constants.CaptureQuality.high` or `"high"` (default), `Camera.constants.CaptureQuality.medium` or `"medium"`, `Camera.constants.CaptureQuality.low` or `"low"`
+
+This property allows you to specify the quality output of the captured image or video. By default the quality is set to high.
 
 #### `type`
 
@@ -219,6 +224,10 @@ By default, `onZoomChanged` is not defined and pinch-to-zoom is disabled.
 
 If set to `true`, the device will not sleep while the camera preview is visible. This mimics the behavior of the default camera app, which keeps the device awake while open.
 
+#### `iOS` `mirrorImage`
+
+If set to `true`, the image returned will be mirrored..
+
 ## Component instance methods
 
 You can access component methods by adding a `ref` (ie. `ref="camera"`) prop to your `<Camera>` element, then you can use `this.refs.camera.capture(cb)`, etc. inside your component.
@@ -240,7 +249,7 @@ Supported options:
 
 Returns the camera's current field of view.
 
-#### `iOS` `hasFlash(): Promise`
+#### `hasFlash(): Promise`
 
 Returns whether or not the camera has flash capabilities.
 
