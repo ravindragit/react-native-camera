@@ -1,5 +1,6 @@
 import React, {
   Component,
+  View,
 } from 'react-native';
 
 const CAMERA_REF = 'camera';
